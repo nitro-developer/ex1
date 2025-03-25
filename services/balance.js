@@ -1,26 +1,29 @@
+import { Op, Sequelize } from 'sequelize';
 import { User } from '../models/index.js';
-import { sequelize } from '../infra/index.js';
 import { HttpException } from '../shared/http-exception.js';
 
 export const updateBalance = async (userId, amount) => {
 	try {
-		const [updatedUser] = await sequelize.query(
-			`UPDATE "Users" 
-			SET balance = balance + :amount 
-			WHERE id = :userId AND balance + :amount >= 0 
-			RETURNING balance`,
+		const whereCondition = {
+			id: userId,
+		};
+
+		if (amount < 0) whereCondition.balance = { [Op.gte]: -amount };
+
+		const [affectedRows, updatedUsers] = await User.update(
+			{ balance: Sequelize.literal(`balance + ${amount}`) },
 			{
-				replacements: { userId, amount },
-				type: 'UPDATE',
+				where: whereCondition,
+				returning: true,
 			}
 		);
 
-		if (!updatedUser || updatedUser.length === 0) {
+		if (!affectedRows) {
 			throw new HttpException('insufficient balance or user not found', 400);
 		}
 
-		return { balance: updatedUser[0]?.balance };
+		return { userId: updatedUsers[0].id, balance: updatedUsers[0].balance };
 	} catch (error) {
-		throw new HttpException(error?.message, error?.status);
+		throw new HttpException(error?.message || 'Internal Server Error', error?.status || 500);
 	}
 };
